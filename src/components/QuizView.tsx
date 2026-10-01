@@ -8,9 +8,7 @@ import {
   RotateCcw,
   ArrowRight,
   Shuffle,
-  Settings2,
   Trophy,
-  Eye,
   EyeOff,
   HelpCircle,
 } from 'lucide-react';
@@ -167,10 +165,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
           };
         });
 
-        let finalOptions = [correctChoice, ...wrongChoices];
-        if (shuffleOptions) {
-          finalOptions = finalOptions.sort(() => 0.5 - Math.random());
-        }
+        // Options are always shuffled so the answer position is unpredictable.
+        const finalOptions = [correctChoice, ...wrongChoices].sort(() => 0.5 - Math.random());
 
         return {
           target,
@@ -181,13 +177,13 @@ export const QuizView: React.FC<QuizViewProps> = ({
       setQuestions(generated);
       setCurrentIndex(0);
       setSelectedOptionId(null);
-      setShowHint(alwaysShowHintsRef.current);
+      setShowHint(false);
       setScore(0);
       setIsFinished(false);
       setStreak(0);
       setMaxStreak(0);
     },
-    [scopedWords, allWords, language, questionLimit, shuffleOptions]
+    [scopedWords, allWords, language, questionLimit]
   );
 
   // Initialize ONLY when the quiz identity changes or on first mount
@@ -286,7 +282,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
     if (currentIndex + 1 < questions.length) {
       setCurrentIndex((prev) => prev + 1);
       setSelectedOptionId(null);
-      setShowHint(alwaysShowHints);
+      setShowHint(false);
     } else {
       // `score` already includes the final answer, since selecting an option
       // updates it immediately.
@@ -338,15 +334,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const handleChangeLimit = (limit: QuestionCountChoice) => {
     setQuestionLimit(limit);
     generateQuiz(limit);
-  };
-
-  // Toggle hints visibility without resetting quiz
-  const handleToggleAlwaysHints = () => {
-    setAlwaysShowHints((prev) => {
-      const next = !prev;
-      setShowHint(next);
-      return next;
-    });
   };
 
   // Empty state if the category (or the selected level within it) has no words
@@ -573,22 +560,20 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
             {/* Hide/Show Hint like: wage (pay: hide/show) */}
             <div className="mt-2 flex items-center gap-2 flex-wrap">
-              {showHint || alwaysShowHints ? (
+              {showHint ? (
                 <div className="inline-flex items-center gap-2 bg-[#EDE8DD] border border-[#C8BFB0] px-2.5 py-1 rounded-xs animate-in fade-in duration-150">
                   <span className="text-xs text-[#55697D] font-mono uppercase font-bold">Hint:</span>
                   <span className="font-serif-title italic text-base text-[#1A232E]">
                     {q.target.english}
                   </span>
-                  {!alwaysShowHints && (
-                    <button
-                      onClick={() => setShowHint(false)}
-                      className="text-[10px] text-[#55697D] hover:text-[#BA4A2C] cursor-pointer font-sans uppercase font-bold flex items-center gap-0.5 ml-1 transition-colors border-l border-[#C8BFB0] pl-2"
-                      title="Hide hint"
-                    >
-                      <EyeOff className="w-3 h-3" />
-                      <span>hide</span>
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setShowHint(false)}
+                    className="text-[10px] text-[#55697D] hover:text-[#BA4A2C] cursor-pointer font-sans uppercase font-bold flex items-center gap-0.5 ml-1 transition-colors border-l border-[#C8BFB0] pl-2"
+                    title="Hide hint"
+                  >
+                    <EyeOff className="w-3 h-3" />
+                    <span>hide</span>
+                  </button>
                 </div>
               ) : (
                 <button
