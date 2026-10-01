@@ -4,6 +4,7 @@ import { MeaningLanguage, WordItem, ViewMode, FilterStatus, CEFRFilter, QuizStat
 import { VOCAB_BY_LETTER, ALL_WORDS, TOTAL_WORD_COUNT } from './data/oxford3000';
 import { loadMeaningLanguage, MEANING_LANGUAGES, saveMeaningLanguage } from './utils/meanings';
 import { supabase } from './utils/supabase';
+import { loadRemoteProgress, saveRemoteProgress } from './utils/progressSync';
 import {
   loadCheckedWordIds,
   saveCheckedWordIds,
@@ -40,6 +41,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [isProgressReady, setIsProgressReady] = useState(false);
   const [todos, setTodos] = useState<Todo[]>([]);
 
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -76,6 +78,33 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!session) {
+      setIsProgressReady(false);
+      return;
+    }
+
+    let active = true;
+    setIsProgressReady(false);
+
+    loadRemoteProgress(session.user.id).then((remoteProgress) => {
+      if (!active) return;
+
+      if (remoteProgress) {
+        setCheckedIds(remoteProgress.checkedIds);
+        setStarredIds(remoteProgress.starredIds);
+        setQuizStats(remoteProgress.quizStats);
+        setMeaningLanguage(remoteProgress.meaningLanguage);
+      }
+
+      setIsProgressReady(true);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [session]);
+
   // Sync state to localStorage
   useEffect(() => {
     saveCheckedWordIds(checkedIds);
@@ -92,6 +121,21 @@ export default function App() {
   useEffect(() => {
     saveMeaningLanguage(meaningLanguage);
   }, [meaningLanguage]);
+
+  useEffect(() => {
+    if (!session || !isProgressReady) return;
+
+    const timeout = window.setTimeout(() => {
+      void saveRemoteProgress(session.user.id, {
+        checkedIds,
+        starredIds,
+        quizStats,
+        meaningLanguage,
+      });
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [session, isProgressReady, checkedIds, starredIds, quizStats, meaningLanguage]);
 
   // Load shared todos when the Supabase table is available.
   useEffect(() => {
