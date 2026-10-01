@@ -90,9 +90,46 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         : 'Sign in to continue your vocabulary practice.';
 
   return (
-    <main className="min-h-screen bg-[#FAF7F0] px-4 py-10 text-[#1A232E] sm:px-8">
+    <main className="relative isolate min-h-screen overflow-hidden bg-[#FAF7F0] px-4 py-10 text-[#1A232E] sm:px-8">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute inset-[-5%] scale-105 bg-[#FAF7F0] blur-[7px]">
+          <div className="mx-auto max-w-[1240px] px-8 pt-14 opacity-75">
+            <div className="flex items-end justify-between border-b-2 border-[#1A232E] pb-8">
+              <div className="font-serif-title text-7xl italic text-[#1A232E]">Oxford 3000</div>
+              <div className="text-right font-serif-title text-3xl italic text-[#55697D]">
+                English – Hindi
+              </div>
+            </div>
+            <div className="mt-9 flex max-w-[850px] flex-wrap gap-2">
+              {['ALL', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S'].map(
+                (letter, index) => (
+                  <div
+                    key={letter}
+                    className={`h-20 w-20 border border-[#E0D8CB] p-3 font-serif-title text-2xl ${
+                      index === 1 ? 'bg-[#1A232E] text-[#FAF7F0]' : 'bg-[#EDE8DD] text-[#1A232E]'
+                    }`}
+                  >
+                    {letter}
+                    <span className="mt-2 block font-sans text-[9px] tracking-wider opacity-60">213</span>
+                  </div>
+                )
+              )}
+            </div>
+            <div className="mt-12 space-y-5 border-t border-[#C8BFB0] pt-5">
+              {['a, an', 'abandon', 'ability', 'able', 'about', 'above'].map((word, index) => (
+                <div key={word} className="grid grid-cols-[160px_1fr_160px] gap-6 border-b border-[#E0D8CB] pb-4 font-serif-title text-2xl">
+                  <span>{word}</span>
+                  <span className="font-sans text-sm text-[#55697D]">used before a noun to refer to a single thing</span>
+                  <span className="font-sans font-bold text-[#1A232E]">{index % 2 ? 'छोड़ देना' : 'ए, एक'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-b from-[#FAF7F0]/1 via-[#FAF7F0]/4 to-[#FAF7F0]/8 backdrop-blur-[2px]" />
+      </div>
       <div className="mx-auto flex min-h-[80vh] max-w-[440px] items-center justify-center">
-        <section className="w-full border-2 border-[#1A232E] bg-[#FAF7F0] p-7 shadow-sm sm:p-10">
+        <section className="relative z-10 w-full border-2 border-[#1A232E]/70 bg-[#FAF7F0]/50 p-7 shadow-2xl backdrop-blur-md sm:p-10">
           <div className="mb-8 border-b border-[#C8BFB0] pb-5">
             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#55697D]">
               Vocabulary Practice
