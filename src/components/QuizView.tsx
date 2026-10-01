@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { MeaningLanguage, WordItem } from '../types/vocab';
-import { getMeaning } from '../utils/meanings';
+import { getMeaning, getCachedMeaning, getMeaningFontClass } from '../utils/meanings';
 import {
   Volume2,
   CheckCircle2,
@@ -30,6 +30,11 @@ interface ChoiceOption {
   id: string;
   text: string;
   isCorrect: boolean;
+  /** Source word for this option, used to resolve the translation in the background. */
+  sourceWord: string;
+  sourceNepali: string;
+  /** True once `text` holds a real translation for the active language. */
+  resolved: boolean;
 }
 
 interface QuizQuestion {
@@ -38,6 +43,9 @@ interface QuizQuestion {
 }
 
 type QuestionCountChoice = 10 | 25 | 50 | 'all';
+
+const CEFR_LEVELS = ['ALL', 'A1', 'A2', 'B1', 'B2'] as const;
+type CefrChoice = (typeof CEFR_LEVELS)[number];
 
 export const QuizView: React.FC<QuizViewProps> = ({
   currentLetter,
@@ -49,9 +57,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
 }) => {
   // User settings
   const [questionLimit, setQuestionLimit] = useState<QuestionCountChoice>('all');
-  const [shuffleOptions, setShuffleOptions] = useState<boolean>(true);
+  const [cefrLevel, setCefrLevel] = useState<CefrChoice>('ALL');
   const [showHint, setShowHint] = useState<boolean>(false);
-  const [alwaysShowHints, setAlwaysShowHints] = useState<boolean>(false);
 
   // Active quiz state
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
@@ -62,20 +69,41 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
 
-  // Ref to hold alwaysShowHints for use in callbacks without recreating them
-  const alwaysShowHintsRef = useRef(alwaysShowHints);
-  useEffect(() => {
-    alwaysShowHintsRef.current = alwaysShowHints;
-  }, [alwaysShowHints]);
-
   const isTotal = currentLetter === 'ALL';
   const categoryTitle = isTotal ? 'Total Library (All Words)' : `Letter ${currentLetter}`;
 
-  // Core quiz generator: completely deterministic & fast
+  // CEFR level filter narrows which words become questions. Distractors still
+  // come from the full library so every question has four plausible options
+  // regardless of how few words the selected level holds.
+  const scopedWords = useMemo(
+    () => (cefrLevel === 'ALL' ? categoryWords : categoryWords.filter((w) => w.level === cefrLevel)),
+    [categoryWords, cefrLevel]
+  );
+
+  const levelCounts = useMemo(() => {
+    const counts: Record<string, number> = { ALL: categoryWords.length };
+    for (const lvl of CEFR_LEVELS) {
+      if (lvl === 'ALL') continue;
+      counts[lvl] = categoryWords.reduce((n, w) => (w.level === lvl ? n + 1 : n), 0);
+    }
+    return counts;
+  }, [categoryWords]);
+
+  const scopedTitle =
+    cefrLevel === 'ALL' ? categoryTitle : `${categoryTitle} · ${cefrLevel}`;
+
+  // Core quiz generator: fully synchronous.
+  //
+  // Translations are no longer awaited here. Options are seeded from the
+  // synchronous cache (or the bundled Nepali meaning) so the quiz renders
+  // instantly, then hydrated in the background by the effect below. Previously
+  // this awaited a network translation per option, which meant up to ~12k
+  // requests before the first question could appear on the full library.
   const generateQuiz = useCallback(
-    async (customLimit?: QuestionCountChoice) => {
-      // Questions strictly come from the selected category
-      const targetPool = categoryWords.length > 0 ? categoryWords : allWords;
+    (customLimit?: QuestionCountChoice) => {
+      // Questions come from the category, narrowed by CEFR level when one is
+      // selected. Falls back to the whole library if the level has no words.
+      const targetPool = scopedWords.length > 0 ? scopedWords : allWords;
       if (targetPool.length === 0) {
         setQuestions([]);
         return;
@@ -92,29 +120,52 @@ export const QuizView: React.FC<QuizViewProps> = ({
       }
       const selectedTargets = shuffledTargets.slice(0, count);
 
-      const generated: QuizQuestion[] = await Promise.all(selectedTargets.map(async (target) => {
-        const targetMeaning = await getMeaning(target.word, target.nepali, language).catch(
-          () => target.word
-        );
-        const distractorWords = [...allWords]
-          .filter((word) => word.id !== target.id)
-          .sort(() => 0.5 - Math.random())
-          .slice(0, 3);
-        const candidateDistractors = await Promise.all(
-          distractorWords.map((word) => getMeaning(word.word, word.nepali, language).catch(() => word.word))
-        );
+      // Distractors are drawn from the whole library, excluding only the
+      // current target. An earlier version excluded every selected target,
+      // which emptied the pool entirely in ALL mode and left each question
+      // with a single option.
+      const wordIndexById = new Map(allWords.map((word, index) => [word.id, index]));
+      const distractorIndexes = new Map<string, number[]>();
+
+      const generated: QuizQuestion[] = selectedTargets.map((target) => {
+        let indexes = distractorIndexes.get(target.id);
+        if (!indexes) {
+          indexes = [];
+          const targetIndex = wordIndexById.get(target.id) ?? -1;
+          // Pick 3 distinct distractors so duplicate options can't appear.
+          const used = new Set<number>();
+          // Bound the scan: with a large pool, random draws almost always fill
+          // three slots quickly, but a small library needs more attempts.
+          const maxAttempts = Math.min(allWords.length - 1, 200);
+          for (let attempt = 0; attempt < maxAttempts && indexes.length < 3; attempt++) {
+            const poolIndex = Math.floor(Math.random() * allWords.length);
+            if (poolIndex === targetIndex || used.has(poolIndex)) continue;
+            used.add(poolIndex);
+            indexes.push(poolIndex);
+          }
+          distractorIndexes.set(target.id, indexes);
+        }
 
         const correctChoice: ChoiceOption = {
           id: `opt-correct-${target.id}`,
-          text: targetMeaning,
+          text: getCachedMeaning(target.word, target.nepali, language),
           isCorrect: true,
+          sourceWord: target.word,
+          sourceNepali: target.nepali,
+          resolved: language === 'ne',
         };
 
-        const wrongChoices: ChoiceOption[] = candidateDistractors.map((text, i) => ({
-          id: `opt-wrong-${target.id}-${i}`,
-          text,
-          isCorrect: false,
-        }));
+        const wrongChoices: ChoiceOption[] = indexes.map((poolIndex, i) => {
+          const word = allWords[poolIndex];
+          return {
+            id: `opt-wrong-${target.id}-${i}`,
+            text: word ? getCachedMeaning(word.word, word.nepali, language) : target.word,
+            isCorrect: false,
+            sourceWord: word ? word.word : target.word,
+            sourceNepali: word ? word.nepali : target.nepali,
+            resolved: language === 'ne',
+          };
+        });
 
         let finalOptions = [correctChoice, ...wrongChoices];
         if (shuffleOptions) {
@@ -125,7 +176,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
           target,
           options: finalOptions,
         };
-      }));
+      });
 
       setQuestions(generated);
       setCurrentIndex(0);
@@ -136,18 +187,77 @@ export const QuizView: React.FC<QuizViewProps> = ({
       setStreak(0);
       setMaxStreak(0);
     },
-    [categoryWords, allWords, language, questionLimit, shuffleOptions]
+    [scopedWords, allWords, language, questionLimit, shuffleOptions]
   );
 
-  // Initialize ONLY when currentLetter changes or on first mount
+  // Initialize ONLY when the quiz identity changes or on first mount
   const prevQuizKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    const quizKey = `${currentLetter}:${language}`;
+    const quizKey = `${currentLetter}:${cefrLevel}:${language}`;
     if (prevQuizKeyRef.current !== quizKey) {
       prevQuizKeyRef.current = quizKey;
       generateQuiz();
     }
-  }, [currentLetter, language, generateQuiz]);
+  }, [currentLetter, cefrLevel, language, generateQuiz]);
+
+  // Hydrate option translations in the background.
+  //
+  // Runs for the visible question (and the next one, so advancing feels
+  // instant) with a small concurrency window. Options already holding a
+  // non-Nepali translation are skipped, so repeat visits cost nothing.
+  useEffect(() => {
+    if (language === 'ne' || questions.length === 0) return;
+
+    let active = true;
+
+    const hydrate = async (index: number) => {
+      const question = questions[index];
+      if (!question) return;
+
+      const pending = question.options.filter((option) => !option.resolved);
+      if (pending.length === 0) return;
+
+      const resolved = await Promise.all(
+        pending.map(async (option) => {
+          try {
+            const text = await getMeaning(option.sourceWord, option.sourceNepali, language);
+            return { id: option.id, text };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      const updates = new Map(
+        resolved
+          .filter((entry): entry is { id: string; text: string } => entry !== null)
+          .map((entry) => [entry.id, entry.text])
+      );
+      if (!active || updates.size === 0) return;
+
+      setQuestions((prev) =>
+        prev.map((q, i) => {
+          if (i !== index) return q;
+          return {
+            ...q,
+            options: q.options.map((option) =>
+              updates.has(option.id)
+                ? { ...option, text: updates.get(option.id)!, resolved: true }
+                : option
+            ),
+          };
+        })
+      );
+    };
+
+    void hydrate(currentIndex);
+    // Warm the next question so advancing feels instant.
+    if (currentIndex + 1 < questions.length) void hydrate(currentIndex + 1);
+
+    return () => {
+      active = false;
+    };
+  }, [currentIndex, questions, language]);
 
   // Handle choice selection
   const handleSelectOption = (option: ChoiceOption) => {
@@ -178,8 +288,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
       setSelectedOptionId(null);
       setShowHint(alwaysShowHints);
     } else {
-      // Calculate final score
-      const finalScore = score + (selectedOptionId && questions[currentIndex]?.options.find(o => o.id === selectedOptionId)?.isCorrect ? 0 : 0);
+      // `score` already includes the final answer, since selecting an option
+      // updates it immediately.
       setIsFinished(true);
       if (onRecordQuizResult) {
         onRecordQuizResult(score, questions.length);
@@ -239,15 +349,24 @@ export const QuizView: React.FC<QuizViewProps> = ({
     });
   };
 
-  // Empty state if category has no words
-  if (categoryWords.length === 0) {
+  // Empty state if the category (or the selected level within it) has no words
+  if (scopedWords.length === 0) {
     return (
       <div className="bg-[#FAF7F0] border border-[#C8BFB0] rounded-xs p-10 text-center text-[#55697D] space-y-3">
         <p className="font-serif-title italic text-3xl text-[#1A232E]">
-          No words in {categoryTitle}
+          No words in {scopedTitle}
         </p>
         <p className="text-xs text-[#55697D]">
-          Please select another letter group or click <strong>ALL</strong> in the letter bar above to quiz across the full dictionary.
+          {cefrLevel === 'ALL' ? (
+            <>
+              Please select another letter group or click <strong>ALL</strong> in the letter bar above to quiz across the full dictionary.
+            </>
+          ) : (
+            <>
+              Level <strong>{cefrLevel}</strong> has no words in {categoryTitle}. Pick another level or{' '}
+              <strong>ALL</strong>.
+            </>
+          )}
         </p>
       </div>
     );
@@ -264,7 +383,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
         <div>
           <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#55697D]">
-            {categoryTitle}
+            {scopedTitle}
           </span>
           <h2 className="font-serif-title italic text-4xl text-[#1A232E] mt-1">Quiz Completed!</h2>
           <p className="text-xs text-[#55697D] mt-1">
@@ -299,7 +418,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
             }}
             className="w-full py-2.5 px-4 bg-white border border-[#C8BFB0] hover:border-[#1A232E] text-[#1A232E] text-xs font-bold uppercase tracking-wider rounded-xs cursor-pointer transition-colors"
           >
-            {questionLimit === 'all' ? 'Switch to Quick 10-Question Quiz' : `Quiz All ${categoryWords.length} Words`}
+            {questionLimit === 'all' ? 'Switch to Quick 10-Question Quiz' : `Quiz All ${scopedWords.length} Words`}
           </button>
         </div>
       </div>
@@ -307,7 +426,27 @@ export const QuizView: React.FC<QuizViewProps> = ({
   }
 
   const q = questions[currentIndex];
-  if (!q) return null;
+  // Generation is synchronous, so this only shows for the first paint.
+  if (!q) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4" aria-busy="true" aria-live="polite">
+        <div className="bg-[#EDE8DD] border border-[#C8BFB0] p-4 rounded-xs">
+          <div className="h-3 w-24 bg-[#D5CDBD] rounded-xs animate-pulse" />
+          <div className="mt-2 h-6 w-48 bg-[#D5CDBD] rounded-xs animate-pulse" />
+        </div>
+        <div className="bg-[#FAF7F0] border-2 border-[#1A232E] rounded-xs p-8 space-y-4">
+          <div className="h-4 w-16 bg-[#E0D8CB] rounded-xs animate-pulse" />
+          <div className="h-10 w-3/4 bg-[#E0D8CB] rounded-xs animate-pulse" />
+          <div className="grid gap-2 pt-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-12 w-full bg-[#EDE8DD] rounded-xs animate-pulse" />
+            ))}
+          </div>
+        </div>
+        <p className="sr-only">Preparing quiz…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
@@ -318,10 +457,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
             Active Category
           </div>
           <div className="font-serif-title italic text-2xl text-[#1A232E] leading-tight">
-            {categoryTitle}
+            {scopedTitle}
           </div>
           <div className="text-[11px] text-[#55697D] tabular-nums">
-            {categoryWords.length} words in this pool
+            {scopedWords.length} {scopedWords.length === 1 ? 'word' : 'words'} in this pool
           </div>
         </div>
 
@@ -330,11 +469,11 @@ export const QuizView: React.FC<QuizViewProps> = ({
           {/* Question Limit Pills */}
           <div className="flex items-center bg-[#FAF7F0] border border-[#C8BFB0] p-0.5 rounded-xs text-[11px] font-bold uppercase">
             {([10, 25, 50, 'all'] as const).map((opt) => {
-              if (typeof opt === 'number' && opt > categoryWords.length && categoryWords.length > 5) {
+              if (typeof opt === 'number' && opt > scopedWords.length && scopedWords.length > 5) {
                 return null;
               }
               const isActive = questionLimit === opt;
-              const label = opt === 'all' ? `All (${categoryWords.length})` : `${opt}Q`;
+              const label = opt === 'all' ? `All (${scopedWords.length})` : `${opt}Q`;
 
               return (
                 <button
@@ -362,35 +501,38 @@ export const QuizView: React.FC<QuizViewProps> = ({
             <Shuffle className="w-3.5 h-3.5" />
             <span>Shuffle</span>
           </button>
-
-          {/* Hints Toggle: Toggles hint mode without restarting quiz */}
-          <button
-            onClick={handleToggleAlwaysHints}
-            title={`Hint display mode: ${alwaysShowHints ? 'Always Show' : 'Show on request'}`}
-            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-xs text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors ${
-              alwaysShowHints
-                ? 'bg-[#1A232E] text-white border-[#1A232E]'
-                : 'bg-white text-[#55697D] border-[#C8BFB0] hover:border-[#1A232E] hover:text-[#1A232E]'
-            }`}
-          >
-            {alwaysShowHints ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">Hints:</span>
-            <span>{alwaysShowHints ? 'ON' : 'OFF'}</span>
-          </button>
-
-          {/* Shuffle Options Toggle */}
-          <button
-            onClick={() => setShuffleOptions((prev) => !prev)}
-            title={`Option order shuffling: ${shuffleOptions ? 'ON' : 'OFF'}`}
-            className={`p-1.5 border rounded-xs cursor-pointer transition-colors ${
-              shuffleOptions
-                ? 'bg-[#1A232E] text-white border-[#1A232E]'
-                : 'bg-white text-[#8A9BA8] border-[#C8BFB0]'
-            }`}
-          >
-            <Settings2 className="w-3.5 h-3.5" />
-          </button>
         </div>
+      </div>
+
+      {/* CEFR level selector */}
+      <div className="flex flex-wrap items-center gap-1.5 px-1 text-xs text-[#55697D]">
+        <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Level</span>
+        {CEFR_LEVELS.map((lvl) => {
+          const count = levelCounts[lvl] ?? 0;
+          // Hide levels that have no words in this category.
+          if (lvl !== 'ALL' && count === 0) return null;
+          const isActive = cefrLevel === lvl;
+          return (
+            <button
+              key={lvl}
+              type="button"
+              onClick={() => setCefrLevel(lvl)}
+              title={
+                lvl === 'ALL'
+                  ? `Quiz every level in ${categoryTitle}`
+                  : `Quiz ${count} ${lvl} words`
+              }
+              aria-pressed={isActive}
+              className={`px-2 py-0.5 rounded-xs text-xs font-semibold transition-colors cursor-pointer ${
+                isActive
+                  ? 'bg-[#1A232E] text-white'
+                  : 'hover:bg-[#EDE8DD] hover:text-[#1A232E]'
+              }`}
+            >
+              {lvl === 'ALL' ? `All ${count}` : `${lvl} ${count}`}
+            </button>
+          );
+        })}
       </div>
 
       {/* Progress & Score Bar */}
@@ -493,13 +635,13 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 key={option.id}
                 onClick={() => handleSelectOption(option)}
                 disabled={showFeedback}
-                className={`w-full py-3.5 px-4 border rounded-xs text-left font-nepali text-base sm:text-lg font-semibold transition-all flex items-center justify-between cursor-pointer ${btnStyle}`}
+                className={`w-full py-3.5 px-4 border rounded-xs text-left text-base sm:text-lg font-semibold transition-all flex items-center justify-between cursor-pointer ${btnStyle}`}
               >
                 <div className="flex items-center gap-3">
                   <span className="font-mono text-xs text-[#8A9BA8] not-italic">
                     {String.fromCharCode(65 + optIdx)}.
                   </span>
-                  <span>{option.text}</span>
+                  <span className={getMeaningFontClass(language)}>{option.text}</span>
                 </div>
 
                 {showFeedback && option.isCorrect && (

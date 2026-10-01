@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { MeaningLanguage, WordItem } from '../types/vocab';
 import { MEANING_LANGUAGES } from '../utils/meanings';
 import { MeaningText } from './MeaningText';
-import { Volume2, Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Volume2, Check, ChevronLeft, ChevronRight, X, Star } from 'lucide-react';
 import { playPronunciation } from '../utils/speech';
 
 interface VocabTableProps {
@@ -63,6 +63,7 @@ export const VocabTable: React.FC<VocabTableProps> = ({
               <th className="py-3 px-3 w-12 text-left">№</th>
               <th className="py-3 px-4 min-w-[180px]">Word</th>
               <th className="py-3 px-3 w-16 text-center">Level</th>
+              <th className="py-3 px-3 w-14 text-center">Later</th>
               <th className="py-3 px-4 min-w-[280px]">English</th>
               <th className="py-3 px-4 min-w-[200px]">
                 {MEANING_LANGUAGES.find((option) => option.code === language)?.label}
@@ -72,6 +73,7 @@ export const VocabTable: React.FC<VocabTableProps> = ({
           <tbody className="divide-y divide-[#EBE4D8]">
             {paginatedWords.map((item, idx) => {
               const isChecked = checkedIds.has(item.id);
+              const isStarred = starredIds.has(item.id);
               const absoluteIdx = (safePage - 1) * pageSize + idx + 1;
 
               return (
@@ -143,13 +145,29 @@ export const VocabTable: React.FC<VocabTableProps> = ({
                     </span>
                   </td>
 
+                  {/* Understand later collection */}
+                  <td className="py-3 px-3 text-center align-middle">
+                    <button
+                      onClick={() => onToggleStar(item.id)}
+                      className={`p-1.5 rounded-xs cursor-pointer transition-colors ${
+                        isStarred
+                          ? 'text-[#BA4A2C] hover:text-[#8F321D]'
+                          : 'text-[#9AA5AE] hover:text-[#BA4A2C]'
+                      }`}
+                      title={isStarred ? 'Remove from Understand later' : 'Save to Understand later'}
+                      aria-label={isStarred ? `Remove ${item.word} from Understand later` : `Save ${item.word} to Understand later`}
+                    >
+                      <Star className={`w-4 h-4 ${isStarred ? 'fill-current' : ''}`} />
+                    </button>
+                  </td>
+
                   {/* English Definition */}
                   <td className="py-3 px-4 text-sm text-[#2C3B49] leading-relaxed align-middle">
                     {item.english}
                   </td>
 
                   {/* Nepali Meaning */}
-                  <td className="py-3 px-4 text-base font-bold font-nepali text-[#1A232E] leading-relaxed align-middle">
+                  <td className="py-3 px-4 text-base font-bold text-[#1A232E] leading-relaxed align-middle">
                     <MeaningText word={item.word} nepali={item.nepali} language={language} />
                   </td>
                 </tr>
@@ -251,7 +269,7 @@ export const VocabTable: React.FC<VocabTableProps> = ({
                 {MEANING_LANGUAGES.find((option) => option.code === language)?.label} Meaning
                 ({MEANING_LANGUAGES.find((option) => option.code === language)?.nativeLabel})
               </div>
-              <div className="text-2xl font-bold font-nepali text-[#1A232E]">
+              <div className="text-2xl font-bold text-[#1A232E]">
                 <MeaningText
                   word={selectedWord.word}
                   nepali={selectedWord.nepali}
@@ -270,6 +288,17 @@ export const VocabTable: React.FC<VocabTableProps> = ({
             </div>
 
             <div className="pt-3 border-t border-[#E0D8CB] flex justify-end">
+              <button
+                onClick={() => onToggleStar(selectedWord.id)}
+                className={`mr-auto inline-flex items-center gap-1.5 px-3 py-2 border text-xs font-bold uppercase tracking-wider rounded-xs cursor-pointer ${
+                  starredIds.has(selectedWord.id)
+                    ? 'border-[#BA4A2C] bg-[#FFF0ED] text-[#BA4A2C]'
+                    : 'border-[#C8BFB0] bg-white text-[#55697D] hover:border-[#BA4A2C] hover:text-[#BA4A2C]'
+                }`}
+              >
+                <Star className={`w-3.5 h-3.5 ${starredIds.has(selectedWord.id) ? 'fill-current' : ''}`} />
+                {starredIds.has(selectedWord.id) ? 'Saved for later' : 'Understand later'}
+              </button>
               <button
                 onClick={() => {
                   onToggleCheck(selectedWord.id);

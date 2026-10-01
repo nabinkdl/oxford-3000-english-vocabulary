@@ -27,7 +27,7 @@ export interface MeaningLanguageOption {
   nativeLabel: string;
 }
 
-export type ViewMode = 'table' | 'flashcards' | 'quiz' | 'analytics';
+export type ViewMode = 'table' | 'flashcards' | 'quiz' | 'analytics' | 'about';
 export type FilterStatus = 'all' | 'checked' | 'unchecked' | 'starred';
 export type CEFRFilter = 'ALL' | 'A1' | 'A2' | 'B1' | 'B2';
 

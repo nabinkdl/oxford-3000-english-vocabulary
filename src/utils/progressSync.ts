@@ -65,3 +65,45 @@ export async function saveRemoteProgress(
     console.error('Failed to save cloud progress:', error.message);
   }
 }
+
+/**
+ * Combine guest (localStorage) progress with existing cloud progress.
+ *
+ * Word lists are unioned so nothing a guest marked is lost, quiz stats keep the
+ * best recorded values, and recent scores are concatenated newest-last. The
+ * meaning language prefers whatever the account already had.
+ */
+export function mergeProgress(
+  local: ProgressSnapshot,
+  remote: ProgressSnapshot | null
+): ProgressSnapshot {
+  if (!remote) return local;
+
+  const checkedIds = new Set<string>([...remote.checkedIds, ...local.checkedIds]);
+  const starredIds = new Set<string>([...remote.starredIds, ...local.starredIds]);
+
+  const recentScores = [...remote.quizStats.recentScores, ...local.quizStats.recentScores]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-10);
+
+  return {
+    checkedIds,
+    starredIds,
+    meaningLanguage: remote.meaningLanguage || local.meaningLanguage,
+    quizStats: {
+      quizzesPlayed: Math.max(remote.quizStats.quizzesPlayed, local.quizStats.quizzesPlayed),
+      totalQuestionsAnswered: Math.max(
+        remote.quizStats.totalQuestionsAnswered,
+        local.quizStats.totalQuestionsAnswered
+      ),
+      totalCorrect: Math.max(remote.quizStats.totalCorrect, local.quizStats.totalCorrect),
+      bestStreak: Math.max(remote.quizStats.bestStreak, local.quizStats.bestStreak),
+      currentStreak: 0,
+      lastPlayedTimestamp: Math.max(
+        remote.quizStats.lastPlayedTimestamp,
+        local.quizStats.lastPlayedTimestamp
+      ),
+      recentScores,
+    },
+  };
+}

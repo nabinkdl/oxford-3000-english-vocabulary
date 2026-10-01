@@ -16,6 +16,24 @@
   font-family: 'Noto Sans Devanagari', 'Plus Jakarta Sans', sans-serif;
 }
 
+/* Meaning-language font stacks (Devanagari is defined above as .font-nepali) */
+
+.font-latin {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+.font-hanzi {
+  font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+.font-arabic {
+  font-family: 'Noto Sans Arabic', 'Geeza Pro', 'Segoe UI', system-ui, sans-serif;
+}
+
+.font-bengali {
+  font-family: 'Noto Sans Bengali', 'Nirmala UI', system-ui, sans-serif;
+}
+
 /* Strikethrough style matching the user screenshot */
 .word-learned {
   text-decoration: line-through;

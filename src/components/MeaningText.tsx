@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { MeaningLanguage } from '../types/vocab';
-import { getMeaning } from '../utils/meanings';
+import { getMeaning, getCachedMeaning, getMeaningFontClass } from '../utils/meanings';
 
 interface MeaningTextProps {
   word: string;
@@ -15,18 +15,21 @@ export const MeaningText: React.FC<MeaningTextProps> = ({
   language,
   className,
 }) => {
-  const [meaning, setMeaning] = useState(language === 'ne' ? nepali : '...');
+  // Seed from the synchronous cache so previously translated words paint on the
+  // first render instead of flashing a placeholder.
+  const [meaning, setMeaning] = useState(() => getCachedMeaning(word, nepali, language));
 
   useEffect(() => {
     let active = true;
-    setMeaning(language === 'ne' ? nepali : '...');
+    setMeaning(getCachedMeaning(word, nepali, language));
+
     if (language !== 'ne') {
       getMeaning(word, nepali, language)
         .then((value) => {
           if (active) setMeaning(value);
         })
         .catch(() => {
-          if (active) setMeaning('Translation unavailable');
+          if (active) setMeaning(nepali);
         });
     }
     return () => {
@@ -34,5 +37,9 @@ export const MeaningText: React.FC<MeaningTextProps> = ({
     };
   }, [word, nepali, language]);
 
-  return <span className={className}>{meaning}</span>;
+  // Font follows the selected meaning language, so CJK/Arabic/Bengali text
+  // renders with the correct script instead of the Devanagari stack.
+  const fontClass = getMeaningFontClass(language);
+
+  return <span className={`${fontClass} ${className ?? ''}`}>{meaning}</span>;
 };

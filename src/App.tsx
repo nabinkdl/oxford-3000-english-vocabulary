@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { MeaningLanguage, WordItem, ViewMode, FilterStatus, CEFRFilter, QuizStats } from './types/vocab';
 import { VOCAB_BY_LETTER, ALL_WORDS, TOTAL_WORD_COUNT } from './data/oxford3000';
 import { loadMeaningLanguage, MEANING_LANGUAGES, saveMeaningLanguage } from './utils/meanings';
 import { supabase } from './utils/supabase';
-import { loadRemoteProgress, saveRemoteProgress } from './utils/progressSync';
+import { loadRemoteProgress, saveRemoteProgress, mergeProgress } from './utils/progressSync';
 import {
   loadCheckedWordIds,
   saveCheckedWordIds,
@@ -25,6 +25,9 @@ import { ResetConfirmModal } from './components/ResetConfirmModal';
 import { Toast } from './components/Toast';
 import { AuthScreen } from './components/AuthScreen';
 import { SupportModal } from './components/SupportModal';
+import { AboutView } from './components/AboutView';
+import { Footer } from './components/Footer';
+import { AdSlot } from './components/AdSlot';
 
 interface Todo {
   id: number;
@@ -39,7 +42,6 @@ export default function App() {
   const [quizStats, setQuizStats] = useState<QuizStats>(() => loadQuizStats());
   const [meaningLanguage, setMeaningLanguage] = useState<MeaningLanguage>(() => loadMeaningLanguage());
   const [session, setSession] = useState<Session | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [isProgressReady, setIsProgressReady] = useState(false);
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -50,16 +52,19 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
   const [isSupportOpen, setIsSupportOpen] = useState<boolean>(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
   const isTotal = currentLetter === 'ALL';
+  const isSignedIn = Boolean(session);
 
   useEffect(() => {
     let mounted = true;
 
+    // Runs for guests too: a returning signed-in user should land on their
+    // cloud progress without the app ever gating behind the login screen.
     supabase.auth.getSession().then(({ data }) => {
       if (mounted) {
         setSession(data.session);
-        setAuthLoading(false);
       }
     });
 
@@ -68,7 +73,6 @@ export default function App() {
         setSession(nextSession);
         if (event === 'PASSWORD_RECOVERY') setIsPasswordRecovery(true);
         if (event === 'SIGNED_OUT') setIsPasswordRecovery(false);
-        setAuthLoading(false);
       }
     });
 
@@ -78,17 +82,71 @@ export default function App() {
     };
   }, []);
 
+  // On sign-in, merge any guest progress already in localStorage into the
+  // account instead of discarding it or blindly overwriting the cloud copy.
+  const guestSnapshotRef = useRef<{
+    checkedIds: Set<string>;
+    starredIds: Set<string>;
+    quizStats: QuizStats;
+    meaningLanguage: MeaningLanguage;
+  } | null>(null);
+  // Captured once per page load. Without this guard, signing out of account A
+  // and into account B would re-capture A's progress and merge it into B.
+  const guestCapturedRef = useRef(false);
+
   useEffect(() => {
     if (!session) {
       setIsProgressReady(false);
+      if (!guestCapturedRef.current) {
+        guestCapturedRef.current = true;
+        guestSnapshotRef.current = {
+          checkedIds,
+          starredIds,
+          quizStats,
+          meaningLanguage,
+        };
+      }
       return;
     }
 
     let active = true;
     setIsProgressReady(false);
 
-    loadRemoteProgress(session.user.id).then((remoteProgress) => {
+    const guest = guestSnapshotRef.current;
+    const hasGuestProgress =
+      Boolean(guest) &&
+      ((guest?.checkedIds.size ?? 0) > 0 ||
+        (guest?.starredIds.size ?? 0) > 0 ||
+        (guest?.quizStats.quizzesPlayed ?? 0) > 0);
+
+    loadRemoteProgress(session.user.id).then(async (remoteProgress) => {
       if (!active) return;
+
+      if (hasGuestProgress && guest) {
+        const merged = mergeProgress(
+          {
+            checkedIds: guest.checkedIds,
+            starredIds: guest.starredIds,
+            quizStats: guest.quizStats,
+            meaningLanguage: guest.meaningLanguage,
+          },
+          remoteProgress
+        );
+
+        setCheckedIds(merged.checkedIds);
+        setStarredIds(merged.starredIds);
+        setQuizStats(merged.quizStats);
+        setMeaningLanguage(merged.meaningLanguage);
+
+        // Persist the merged result so cloud and device agree from now on.
+        await saveRemoteProgress(session.user.id, merged);
+        if (!active) return;
+        guestSnapshotRef.current = null;
+        setIsProgressReady(true);
+        setIsAuthModalOpen(false);
+        showToast('Signed in — progress cloud saved');
+        return;
+      }
 
       if (remoteProgress) {
         setCheckedIds(remoteProgress.checkedIds);
@@ -98,11 +156,15 @@ export default function App() {
       }
 
       setIsProgressReady(true);
+      setIsAuthModalOpen(false);
     });
 
     return () => {
       active = false;
     };
+    // Intentionally keyed on the session only: merging must happen once, at the
+    // moment of sign-in, not on every progress change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   // Sync state to localStorage
@@ -246,6 +308,7 @@ export default function App() {
   }, [scopeWords, checkedIds]);
 
   const scopeRemainingCount = scopeWords.length - scopeCheckedCount;
+  const scopeLaterCount = scopeWords.filter((word) => starredIds.has(word.id)).length;
 
   // Bulk: Check all in current scope (Letter or Total)
   const handleCheckAllCurrent = () => {
@@ -316,14 +379,6 @@ export default function App() {
     });
   }, [scopeWords, checkedIds, starredIds, filterStatus, cefrFilter, searchQuery]);
 
-  if (authLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#FAF7F0] text-sm text-[#55697D]">
-        Loading your account...
-      </div>
-    );
-  }
-
   if (isPasswordRecovery && session) {
     return (
       <AuthScreen
@@ -336,17 +391,29 @@ export default function App() {
     );
   }
 
-  if (!session) {
-    return <AuthScreen />;
-  }
-
   const handleSignOut = async () => {
     await supabase.auth.signOut();
+    showToast('Signed out — progress stays saved on this device');
+  };
+
+  // Guests get the full app; login is only requested when they want to cloud save.
+  const handleSaveClick = () => {
+    if (isSignedIn) {
+      if (!session || !isProgressReady) return;
+      void saveRemoteProgress(session.user.id, {
+        checkedIds,
+        starredIds,
+        quizStats,
+        meaningLanguage,
+      }).then(() => showToast('Progress cloud saved'));
+      return;
+    }
+    setIsAuthModalOpen(true);
   };
 
   return (
     <div className="min-h-screen bg-[#FAF7F0] text-[#1A232E]">
-      <div className="max-w-[1240px] mx-auto px-4 sm:px-8 pb-16">
+      <div className="max-w-[1240px] mx-auto px-4 sm:px-8 pb-0">
         {/* Header with Navigation modes & Oxford 3000 serif branding */}
         <Header
           viewMode={viewMode}
@@ -358,15 +425,18 @@ export default function App() {
           languageOptions={MEANING_LANGUAGES}
           onLanguageChange={setMeaningLanguage}
           cloudTodoCount={todos.length}
-          userEmail={session.user.email ?? ''}
+          userEmail={session?.user.email ?? ''}
+          isSignedIn={isSignedIn}
           onSignOut={handleSignOut}
           onSupportClick={() => setIsSupportOpen(true)}
+          onSaveClick={handleSaveClick}
         />
 
         {/* Analytics Dashboard View */}
         {viewMode === 'analytics' ? (
           <GameAnalyticsDashboard
             checkedIds={checkedIds}
+            starredIds={starredIds}
             quizStats={quizStats}
             onSelectLetter={(letter) => {
               setCurrentLetter(letter);
@@ -374,7 +444,17 @@ export default function App() {
             }}
             onStartQuiz={() => setViewMode('quiz')}
             onOpenFlashcards={() => setViewMode('flashcards')}
+            onOpenCollection={() => {
+              setCurrentLetter('ALL');
+              setFilterStatus('starred');
+              setSearchQuery('');
+              setCefrFilter('ALL');
+              setViewMode('table');
+            }}
+            language={meaningLanguage}
           />
+        ) : viewMode === 'about' ? (
+          <AboutView language={meaningLanguage} />
         ) : (
           <>
             {/* 1. Letter A–Z Grid + TOTAL (Category Selector at top) */}
@@ -382,6 +462,7 @@ export default function App() {
               currentLetter={currentLetter}
               onSelectLetter={handleSelectLetter}
               checkedIds={checkedIds}
+              showAd={viewMode !== 'quiz' && viewMode !== 'flashcards'}
             />
 
             {/* 2. Progress Bar (shown for Table and Flashcards view) */}
@@ -400,6 +481,7 @@ export default function App() {
                 totalCount={scopeWords.length}
                 learnedCount={scopeCheckedCount}
                 remainingCount={scopeRemainingCount}
+                laterCount={scopeLaterCount}
                 filterStatus={filterStatus}
                 onFilterChange={setFilterStatus}
                 searchQuery={searchQuery}
@@ -408,6 +490,7 @@ export default function App() {
                 onCEFRChange={setCefrFilter}
                 onCheckAll={handleCheckAllCurrent}
                 onResetScope={handleOpenResetModal}
+                language={meaningLanguage}
               />
             )}
 
@@ -449,6 +532,12 @@ export default function App() {
             )}
           </>
         )}
+
+        {/* Ad slot between the study content (incl. pagination) and the footer.
+            Hidden on quiz and flashcards so those views stay distraction free. */}
+        {viewMode !== 'quiz' && viewMode !== 'flashcards' && (
+          <AdSlot id="below-content" format="wide-banner" className="mt-16 mb-16" />
+        )}
       </div>
 
       {/* Confirmation Modal to prevent accidental resets */}
@@ -465,6 +554,22 @@ export default function App() {
 
       {/* Crypto donation / support modal */}
       <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
+
+      {/* Sign-in prompt for guests who want to save progress */}
+      {isAuthModalOpen && !isSignedIn && (
+        <AuthScreen onClose={() => setIsAuthModalOpen(false)} />
+      )}
+
+      <Footer
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        onSupportClick={() => setIsSupportOpen(true)}
+        onSaveClick={handleSaveClick}
+        isSignedIn={isSignedIn}
+        masteredCount={checkedIds.size}
+        userEmail={session?.user.email ?? ''}
+        language={meaningLanguage}
+      />
     </div>
   );
 }

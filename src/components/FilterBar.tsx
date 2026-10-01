@@ -1,5 +1,6 @@
 import React from 'react';
-import { FilterStatus, CEFRFilter } from '../types/vocab';
+import { FilterStatus, CEFRFilter, MeaningLanguage } from '../types/vocab';
+import { getMeaningLanguageLabel } from '../utils/meanings';
 import { X, CheckCheck, RotateCcw } from 'lucide-react';
 
 interface FilterBarProps {
@@ -7,6 +8,7 @@ interface FilterBarProps {
   totalCount: number;
   learnedCount: number;
   remainingCount: number;
+  laterCount: number;
   filterStatus: FilterStatus;
   onFilterChange: (status: FilterStatus) => void;
   searchQuery: string;
@@ -15,6 +17,7 @@ interface FilterBarProps {
   onCEFRChange: (lvl: CEFRFilter) => void;
   onCheckAll: () => void;
   onResetScope: () => void;
+  language: MeaningLanguage;
 }
 
 export const FilterBar: React.FC<FilterBarProps> = ({
@@ -22,6 +25,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   totalCount,
   learnedCount,
   remainingCount,
+  laterCount,
   filterStatus,
   onFilterChange,
   searchQuery,
@@ -30,6 +34,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   onCEFRChange,
   onCheckAll,
   onResetScope,
+  language,
 }) => {
   const isTotal = currentLetter === 'ALL';
 
@@ -75,6 +80,17 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           >
             REMAINING {remainingCount}
           </button>
+
+          <button
+            onClick={() => onFilterChange('starred')}
+            className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+              filterStatus === 'starred'
+                ? 'bg-white text-[#BA4A2C] shadow-xs'
+                : 'text-[#55697D] hover:text-[#BA4A2C]'
+            }`}
+          >
+            LATER {laterCount}
+          </button>
         </div>
 
         {/* Center: Underline Search Box */}
@@ -85,8 +101,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={
               isTotal
-                ? 'Search all words — English or Nepali...'
-                : `Search in ${currentLetter} — English or Nepali...`
+                ? `Search all words — English or ${getMeaningLanguageLabel(language)}...`
+                : `Search in ${currentLetter} — English or ${getMeaningLanguageLabel(language)}...`
             }
             className="w-full bg-transparent border-b border-[#C8BFB0] py-1.5 px-1 text-sm italic font-serif-title text-[#1A232E] placeholder-[#8A9BA8] focus:outline-none focus:border-[#1A232E] transition-colors"
           />

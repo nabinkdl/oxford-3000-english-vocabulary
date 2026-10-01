@@ -1,17 +1,25 @@
 import React from 'react';
 import { LETTERS, VOCAB_BY_LETTER, TOTAL_WORD_COUNT } from '../data/oxford3000';
 import { Check } from 'lucide-react';
+import { AdSlot } from './AdSlot';
 
 interface LetterNavProps {
   currentLetter: string; // 'ALL' or 'A'-'Z'
   onSelectLetter: (letter: string) => void;
   checkedIds: Set<string>;
+  /**
+   * Ads are hidden on quiz and flashcards. Those views are focused, timed or
+   * full-attention surfaces, and a slot after Z would compete with the card
+   * controls.
+   */
+  showAd?: boolean;
 }
 
 export const LetterNav: React.FC<LetterNavProps> = ({
   currentLetter,
   onSelectLetter,
   checkedIds,
+  showAd = true,
 }) => {
   const isTotalActive = currentLetter === 'ALL';
   const totalMastered = checkedIds.size;
@@ -93,9 +101,21 @@ export const LetterNav: React.FC<LetterNavProps> = ({
               {isComplete && (
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-[#FAF7F0]" />
               )}
+              {!isComplete && checkedCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#BA4A2C] rounded-full ring-2 ring-[#FAF7F0]" />
+              )}
             </button>
           );
         })}
+
+        {/* Ad slot sits inline after the Z tile and stretches to fill the
+            remaining width and height of the row, wrapping to its own line
+            when the letter tiles need the full width. */}
+        {showAd && (
+          <div className="basis-full sm:basis-auto sm:flex-1 sm:ml-2 min-w-[180px]">
+            <AdSlot id="letternav-inline" format="letternav" />
+          </div>
+        )}
       </div>
     </div>
   );

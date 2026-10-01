@@ -1,24 +1,33 @@
 import React from 'react';
-import { QuizStats } from '../types/vocab';
+import { QuizStats, MeaningLanguage } from '../types/vocab';
 import { LETTERS, VOCAB_BY_LETTER, ALL_WORDS, TOTAL_WORD_COUNT } from '../data/oxford3000';
-import { Trophy, CheckCircle2, Target, Flame, Play, ArrowRight, Award } from 'lucide-react';
+import { getMeaningLanguageLabel } from '../utils/meanings';
+import { Trophy, CheckCircle2, Target, Flame, Play, ArrowRight, Award, Star } from 'lucide-react';
+import { AdSlot } from './AdSlot';
 
 interface GameAnalyticsDashboardProps {
   checkedIds: Set<string>;
+  starredIds: Set<string>;
   quizStats: QuizStats;
   onSelectLetter: (letter: string) => void;
   onStartQuiz: () => void;
   onOpenFlashcards: () => void;
+  onOpenCollection: () => void;
+  language: MeaningLanguage;
 }
 
 export const GameAnalyticsDashboard: React.FC<GameAnalyticsDashboardProps> = ({
   checkedIds,
+  starredIds,
   quizStats,
   onSelectLetter,
   onStartQuiz,
   onOpenFlashcards,
+  onOpenCollection,
+  language,
 }) => {
   const totalMastered = checkedIds.size;
+  const laterCount = starredIds.size;
   const overallPct =
     TOTAL_WORD_COUNT > 0 ? Math.round((totalMastered / TOTAL_WORD_COUNT) * 100) : 0;
 
@@ -26,6 +35,11 @@ export const GameAnalyticsDashboard: React.FC<GameAnalyticsDashboardProps> = ({
   const completedLetters = LETTERS.filter((L) => {
     const words = VOCAB_BY_LETTER[L] || [];
     return words.length > 0 && words.every((w) => checkedIds.has(w.id));
+  });
+  const startedIncompleteLetters = LETTERS.filter((L) => {
+    const words = VOCAB_BY_LETTER[L] || [];
+    const mastered = words.filter((word) => checkedIds.has(word.id)).length;
+    return mastered > 0 && mastered < words.length;
   });
 
   // CEFR Levels calculations
@@ -54,6 +68,9 @@ export const GameAnalyticsDashboard: React.FC<GameAnalyticsDashboardProps> = ({
 
   return (
     <div className="space-y-8 animate-in fade-in duration-200">
+      {/* Ad slot above the rank banner */}
+      <AdSlot id="analytics-top" format="wide-banner" />
+
       {/* Top Banner: Rank & Title */}
       <div className="bg-[#EDE8DD] border border-[#C8BFB0] p-6 sm:p-8 rounded-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
@@ -68,7 +85,8 @@ export const GameAnalyticsDashboard: React.FC<GameAnalyticsDashboardProps> = ({
               {rank.title}
             </h2>
             <p className="text-xs text-[#55697D] mt-0.5">
-              {totalMastered} words mastered across English–Nepali vocabulary
+              {totalMastered} words mastered across English–{getMeaningLanguageLabel(language)}{' '}
+              vocabulary
             </p>
           </div>
         </div>
@@ -92,7 +110,7 @@ export const GameAnalyticsDashboard: React.FC<GameAnalyticsDashboardProps> = ({
       </div>
 
       {/* 4 Core Game Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Card 1: Total Words */}
         <div className="bg-[#FAF7F0] border border-[#D5CDBD] p-5 rounded-xs space-y-2">
           <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#55697D]">
@@ -166,6 +184,31 @@ export const GameAnalyticsDashboard: React.FC<GameAnalyticsDashboardProps> = ({
             <span>Best Streak: {quizStats.bestStreak} words</span>
           </div>
         </div>
+
+        {/* Card 5: Understand Later Collection */}
+        <div className="bg-[#FAF7F0] border border-[#D5CDBD] p-5 rounded-xs space-y-2">
+          <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#55697D]">
+            Understand Later
+          </div>
+          <div className="font-serif-title italic text-4xl text-[#BA4A2C] tabular-nums">
+            {laterCount}
+            <span className="text-lg font-sans not-italic text-[#7B8B9E] font-normal"> words</span>
+          </div>
+          <div className="h-[3px] bg-[#E5DFD3] rounded-full overflow-hidden">
+            <div
+              className="h-full bg-[#BA4A2C]"
+              style={{ width: `${TOTAL_WORD_COUNT > 0 ? Math.min(100, (laterCount / TOTAL_WORD_COUNT) * 100) : 0}%` }}
+            />
+          </div>
+          <button
+            onClick={onOpenCollection}
+            className="flex items-center gap-1 text-xs text-[#BA4A2C] font-semibold hover:text-[#1A232E] transition-colors cursor-pointer"
+          >
+            <Star className="w-3.5 h-3.5 fill-current" />
+            <span>Review collection</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* CEFR Level Breakdown */}
@@ -238,7 +281,7 @@ export const GameAnalyticsDashboard: React.FC<GameAnalyticsDashboardProps> = ({
               <span className="w-3 h-3 bg-[#2A593D] rounded-xs" /> Completed ({completedLetters.length})
             </span>
             <span className="flex items-center gap-1.5 text-[#55697D]">
-              <span className="w-3 h-3 bg-[#EDE8DD] border border-[#C8BFB0] rounded-xs" /> In Progress ({26 - completedLetters.length})
+              <span className="w-2.5 h-2.5 bg-[#BA4A2C] rounded-full" /> Started, Not Complete ({startedIncompleteLetters.length})
             </span>
           </div>
         </div>
@@ -269,7 +312,8 @@ export const GameAnalyticsDashboard: React.FC<GameAnalyticsDashboardProps> = ({
                   {isDone ? (
                     <CheckCircle2 className="w-4 h-4 text-emerald-300" />
                   ) : (
-                    <span className="text-[10px] font-sans tabular-nums text-[#55697D]">
+                    <span className="flex items-center gap-1 text-[10px] font-sans tabular-nums text-[#55697D]">
+                      {mastered > 0 && <span className="w-2 h-2 bg-[#BA4A2C] rounded-full" />}
                       {pct}%
                     </span>
                   )}

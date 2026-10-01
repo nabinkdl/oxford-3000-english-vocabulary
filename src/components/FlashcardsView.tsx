@@ -176,7 +176,7 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
                   ? 'border-[#BA4A2C] bg-[#FFF0ED] text-[#BA4A2C]'
                   : 'border-[#C8BFB0] bg-white text-[#7B8B9E] hover:text-[#1A232E]'
               }`}
-              title={isStarred ? 'Unstar word' : 'Star word for review'}
+              title={isStarred ? 'Remove from Understand later' : 'Save to Understand later'}
             >
               <Star className={`w-4 h-4 ${isStarred ? 'fill-current' : ''}`} />
             </button>
@@ -207,7 +207,7 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="text-4xl sm:text-5xl font-bold font-nepali text-[#1A232E]">
+              <div className="text-4xl sm:text-5xl font-bold text-[#1A232E]">
                 <MeaningText word={current.word} nepali={current.nepali} language={language} />
               </div>
               <p className="text-sm sm:text-base text-[#4C5B6B] max-w-md mx-auto pt-2 border-t border-[#E0D8CB]">
