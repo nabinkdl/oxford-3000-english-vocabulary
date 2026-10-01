@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #FAF7F0;
+    color: #1A232E;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+.font-serif-title {
+  font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+}
+
+.font-nepali {
+  font-family: 'Noto Sans Devanagari', 'Plus Jakarta Sans', sans-serif;
+}
+
+/* Strikethrough style matching the user screenshot */
+.word-learned {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  color: #2D6A4F;
+}

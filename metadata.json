@@ -1,0 +1,8 @@
+{
+  "name": "Oxford 3000 English-Nepali Vocabulary",
+  "description": "Interactive Oxford 3000 English to Nepali A-Z vocabulary learning app with audio pronunciation, flashcards, quiz mode, and progress tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
